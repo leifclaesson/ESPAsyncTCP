@@ -546,6 +546,21 @@ void AsyncClient::_sent(std::shared_ptr<ACErrorTracker>& errorTracker, tcp_pcb* 
     return;
 #endif
   _rx_last_packet = millis();
+  
+  // If add() is called, then send(), we have unacked len with data, and _pcb_busy true
+  // we have space so we call add with some more data, we call then canSend()
+  // That returns false, because _pcb_busy is true, so we dont call send().
+  // Then this function gets called, but not only with the bytes queued before the send() call
+  // also the data added with add() is send, and acked, now we have more acked data than expected
+  // if we don't check for this unackled overflows when substracting acked length and
+  // pcb_busy never goes false, if we keep checking canSend(), we never call send even if we did
+  // _pcb_busy will remain true.
+  if (len > _tx_unacked_len)
+  {
+    _tx_unacked_len += _tx_unsent_len;
+    _tx_unsent_len = 0;
+  }
+
   _tx_unacked_len -= len;
   _tx_acked_len += len;
   ASYNC_TCP_DEBUG("_sent[%u]: %4u, unacked=%4u, acked=%4u, space=%4u\n", errorTracker->getConnectionId(), len, _tx_unacked_len, _tx_acked_len, space());
